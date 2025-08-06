@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Philadelphia Job Class & Pay Range Lookup</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+      padding: 30px;
+      color: #333;
+    }
+    h1, h2, h3, h4 {
+      color: #222;
+    }
+    input, button {
+      padding: 10px;
+      margin: 5px 0;
+      width: 100%;
+      max-width: 400px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    button {
+      background-color: #005aa7;
+      color: white;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #004080;
+    }
+    button.result-btn {
+      width: auto;
+      padding: 8px 12px;
+      margin: 4px;
+      background-color: #ddd;
+      color: #000;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button.result-btn:hover {
+      background-color: #ccc;
+    }
+    button.pay-range-link {
+      background: none;
+      border: none;
+      color: #005aa7;
+      text-decoration: underline;
+      cursor: pointer;
+      font-size: 1em;
+      padding: 0;
+      margin: 0;
+      font-family: inherit;
+      display: inline-flex;
+    }
+    button.pay-range-link:hover {
+      color: #004080;
+    }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      padding: 20px;
+      margin-top: 20px;
+      max-width: 800px;
+    }
+    .card h3 {
+      margin-top: 0;
+    }
+    .step-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    .step-table th, .step-table td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: center;
+      font-size: 0.9em;
+    }
+    .section {
+      margin-bottom: 60px;
+    }
+    .result-list {
+      margin-top: 10px;
+    }
+    .actions {
+      margin-top: 15px;
+    }
+    .inline-inputs {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      max-width: 440px;
+      margin-bottom: 10px;
+    }
+    .inline-inputs input {
+      flex: 1 1 220px;
+      max-width: none;
+      margin: 0;
+    }
+    .inline-inputs button {
+      flex: 0 0 auto;
+      margin: 0;
+      padding: 10px 18px;
+      width: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Philadelphia Job Class & Pay Range Lookup</h1>
+
+  <!-- Job Title Search -->
+  <div class="section">
+    <h2>🔍 Search by Job Title</h2>
+    <div class="inline-inputs">
+      <input type="text" id="titleSearch" placeholder="Enter part of a job title" />
+      <button onclick="searchByTitle()">Search</button>
+      <button onclick="clearTitleResults()" style="background:#888;">Clear</button>
+    </div>
+    <div class="result-list" id="titleMatches"></div>
+    <div id="titleDetails"></div>
+  </div>
+
+  <!-- Pay Range Search -->
+  <div class="section">
+    <h2>💵 Search by Pay Amount</h2>
+    <div class="inline-inputs">
+      <input type="number" id="paySearch" placeholder="Enter salary amount (e.g. 65000)" />
+      <button onclick="searchByPay()">Search</button>
+      <button onclick="clearPayResults()" style="background:#888;">Clear</button>
+    </div>
+    <div class="result-list" id="payMatches"></div>
+    <div id="payDetails"></div>
+  </div>
+
+  <script>
+    const baseUrl = "https://phl.carto.com/api/v2/sql?q=";
+
+    async function fetchData(sql) {
+      const response = await fetch(baseUrl + encodeURIComponent(sql));
+      const json = await response.json();
+      return json.rows || [];
+    }
+
+    function formatCurrency(value) {
+      if (value === null || value === undefined) return "-";
+      return "$" + parseFloat(value).toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,');
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return "-";
+      const d = new Date(dateStr);
+      return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    }
+
+    function createStepTable(payRow) {
+      if (!payRow) return "";
+      let headers = "", values = "";
+      for (let i = 1; i <= 8; i++) {
+        headers += `<th>Step ${i}</th>`;
+        values += `<td>${formatCurrency(payRow[`step_${i}`])}</td>`;
+      }
+      return `
+        <table class="step-table" aria-label="Pay steps table">
+          <thead><tr>${headers}</tr></thead>
+          <tbody><tr>${values}</tr></tbody>
+        </table>
+      `;
+    }
+
+    function exportToGoogleSheets(dataArray, title = "HR_Data") {
+      if (!dataArray || dataArray.length === 0) {
+        alert("No data to export!");
+        return;
+      }
+
+      // Prepare CSV headers from keys of first object
+      const headers = Object.keys(dataArray[0]).join(",");
+      const csvRows = dataArray.map(row => {
+        return Object.values(row).map(val => {
+          // Escape quotes & commas
+          if (val === null || val === undefined) val = "";
+          else val = String(val).replace(/"/g, '""');
+          return `"${val}"`;
+        }).join(",");
+      });
+
+      const csvContent = [headers, ...csvRows].join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `${title}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
+    // Job Title Search
+    async function searchByTitle() {
+      const input = document.getElementById("titleSearch").value.trim().toLowerCase();
+      if (!input) return;
+
+      const sql = `
+        SELECT DISTINCT job_class_title
+        FROM hr_job_class
+        WHERE LOWER(job_class_title) LIKE '%${input}%'
+        ORDER BY job_class_title
+      `;
+
+      const matches = await fetchData(sql);
+
+      const list = document.getElementById("titleMatches");
+      list.innerHTML = matches.length
+        ? matches.map(m => `<button class="result-btn" onclick="loadJobDetails('${m.job_class_title.replace(/'/g, "\\'")}')">${m.job_class_title}</button>`).join("")
+        : "<p>No matches found.</p>";
+
+      document.getElementById("titleDetails").innerHTML = "";
+      window.jobTitleMatches = matches;
+    }
+
+    async function loadJobDetails(title) {
+      const jobSql = `
+        SELECT * FROM hr_job_class
+        WHERE job_class_title = '${title}'
+        LIMIT 1
+      `;
+      const jobData = await fetchData(jobSql);
+      if (jobData.length === 0) {
+        document.getElementById("titleDetails").innerHTML = "<p>Job not found.</p>";
+        return;
+      }
+      const job = jobData[0];
+
+      const paySql = `
+        SELECT * FROM hr_pay_range
+        WHERE pay_range = '${job.pay_range}'
+      `;
+      const payData = await fetchData(paySql);
+
+      let pay = null;
+      if (payData.length > 0) {
+        // Pick the full-time row by sorting descending on step_1
+        payData.sort((a, b) => (b.step_1 || 0) - (a.step_1 || 0));
+        pay = payData[0];
+      }
+
+      document.getElementById("titleDetails").innerHTML = `
+        <div class="card" role="region" aria-label="Job details for ${job.job_class_title}">
+          <h3>${job.job_class_title}</h3>
+          <p><strong>Class Code:</strong> ${job.job_class_code}</p>
+          <p><strong>Pay Range:</strong> <button class="pay-range-link" onclick="loadJobsForPayRange('${job.pay_range}')">${job.pay_range}</button></p>
+          <p><strong>Salary Min:</strong> ${formatCurrency(job.job_class_salary_min)}</p>
+          <p><strong>Salary Max:</strong> ${formatCurrency(job.job_class_salary_max)}</p>
+          <p><strong>Union Code:</strong> ${job.union_code}</p>
+          <p><strong>Effective Date:</strong> ${formatDate(job.effective_date)}</p>
+          <p><strong>Minimum Education:</strong> ${job.minimum_level_of_education || "-"}</p>
+          <p><strong>Family:</strong> ${job.family || "-"}</p>
+          ${createStepTable(pay)}
+          <div class="actions">
+            <button onclick='exportToGoogleSheets([${JSON.stringify({...job, ...pay})}])'>Export to Google Sheets</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function clearTitleResults() {
+      document.getElementById("titleSearch").value = "";
+      document.getElementById("titleMatches").innerHTML = "";
+      document.getElementById("titleDetails").innerHTML = "";
+      window.jobTitleMatches = [];
+    }
+
+    // Pay Range Search
+    async function searchByPay() {
+      const value = parseFloat(document.getElementById("paySearch").value);
+      if (isNaN(value)) return;
+
+      // Find pay ranges where the value falls between step_1 and step_8 (min and max steps)
+      const sql = `
+        SELECT * FROM hr_pay_range
+        WHERE step_1 <= ${value} AND step_8 >= ${value}
+        ORDER BY pay_range
+      `;
+
+      const payMatches = await fetchData(sql);
+
+      const list = document.getElementById("payMatches");
+      list.innerHTML = payMatches.length
+        ? payMatches.map(p => `<button class="result-btn" onclick="loadJobsForPayRange('${p.pay_range}')">${p.pay_range}</button>`).join("")
+        : "<p>No pay ranges found.</p>";
+
+      document.getElementById("payDetails").innerHTML = "";
+      window.payDataCache = payMatches.reduce((acc, cur) => {
+        acc[cur.pay_range] = cur;
+        return acc;
+      }, {});
+    }
+
+    async function loadJobsForPayRange(range) {
+      const jobsSql = `
+        SELECT * FROM hr_job_class
+        WHERE pay_range = '${range}'
+        ORDER BY job_class_title
+      `;
+      const jobs = await fetchData(jobsSql);
+
+      const paySql = `
+        SELECT * FROM hr_pay_range
+        WHERE pay_range = '${range}'
+      `;
+      const payData = await fetchData(paySql);
+
+      let pay = null;
+      if (payData.length > 0) {
+        // Pick full-time row (highest step_1)
+        payData.sort((a, b) => (b.step_1 || 0) - (a.step_1 || 0));
+        pay = payData[0];
+      }
+
+      if (!jobs.length) {
+        document.getElementById("payDetails").innerHTML = "<p>No jobs found for this pay range.</p>";
+        return;
+      }
+
+      const payRangeCode = pay && pay.pay_range ? pay.pay_range : range;
+
+      document.getElementById("payDetails").innerHTML = `
+        <h3>All titles in this pay range: ${payRangeCode}</h3>
+        ${jobs.map(job => `
+          <div class="card" role="region" aria-label="Job details for ${job.job_class_title}">
+            <h4>${job.job_class_title}</h4>
+            <p><strong>Class Code:</strong> ${job.job_class_code}</p>
+            <p><strong>Pay Range:</strong> <button class="pay-range-link" onclick="loadJobsForPayRange('${job.pay_range}')">${payRangeCode}</button></p>
+            <p><strong>Salary Min:</strong> ${formatCurrency(job.job_class_salary_min)}</p>
+            <p><strong>Salary Max:</strong> ${formatCurrency(job.job_class_salary_max)}</p>
+            <p><strong>Union Code:</strong> ${job.union_code}</p>
+            <p><strong>Effective Date:</strong> ${formatDate(job.effective_date)}</p>
+            <p><strong>Minimum Education:</strong> ${job.minimum_level_of_education || "-"}</p>
+            <p><strong>Family:</strong> ${job.family || "-"}</p>
+            ${createStepTable(pay)}
+          </div>
+        `).join("")}
+        <div class="actions">
+          <button onclick='exportToGoogleSheets(${JSON.stringify(jobs.map(j => ({...j, ...pay})))},"PayRange_${payRangeCode.replace(/\s+/g,"_")}")'>Export to Google Sheets</button>
+        </div>
+      `;
+    }
+
+    function clearPayResults() {
+      document.getElementById("paySearch").value = "";
+      document.getElementById("payMatches").innerHTML = "";
+      document.getElementById("payDetails").innerHTML = "";
+      window.payDataCache = {};
+    }
+  </script>
+
+</body>
+</html>
+
+
+
+
+
+
+
